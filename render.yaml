@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: expressgo-backend
+    env: python
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn bus_ticket_backend.wsgi:application"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.4
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: DATABASE_URL
+        value: "your_supabase_pooler_url"
