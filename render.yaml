@@ -2,8 +2,8 @@ services:
   - type: web
     name: expressgo-backend
     env: python
-    buildCommand: "./build.sh"
-    startCommand: "gunicorn bus_ticket_backend.wsgi:application"
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --no-input && python manage.py migrate"
+    startCommand: "python -m gunicorn bus_ticket_backend.wsgi:application"
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.4
