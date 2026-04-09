@@ -39,11 +39,17 @@ class ChapaPaymentView(APIView):
             'customization[description]': f'Booking for trip ID: {request.data.get("trip_id", "N/A")}'
         }
 
+        if not CHAPA_SECRET_KEY:
+            return Response({
+                "status": "error",
+                "message": "Payment service is not configured. CHAPA_SECRET_KEY is missing on the server."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         try:
             # 3. Call Chapa API
             response = requests.post(CHAPA_URL, json=payload, headers=headers)
             res_data = response.json()
-            
+
             if res_data.get('status') == 'success':
                 return Response({
                     "status": "success",
@@ -51,12 +57,20 @@ class ChapaPaymentView(APIView):
                     "tx_ref": tx_ref
                 })
             else:
-                # Fail-safe: If API fails, return a clear error
+                # Chapa message can be a nested object — always stringify it
+                raw_message = res_data.get('message', 'Failed to initialize Chapa payment')
+                if isinstance(raw_message, dict) or isinstance(raw_message, list):
+                    import json
+                    friendly_message = json.dumps(raw_message)
+                else:
+                    friendly_message = str(raw_message)
+
                 return Response({
                     "status": "error",
-                    "message": res_data.get('message', 'Failed to initialize Chapa payment')
+                    "message": friendly_message,
+                    "debug": res_data  # Full Chapa response for debugging
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
+
         except Exception as e:
             return Response({
                 "status": "error",
