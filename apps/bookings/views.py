@@ -15,17 +15,27 @@ class ChapaPaymentView(APIView):
         email = request.data.get('email', 'customer@example.com')
         first_name = request.data.get('first_name', 'Customer')
         last_name = request.data.get('last_name', 'User')
+        trip_id = request.data.get('trip_id', 'N/A')
         tx_ref = f"expressgo-{uuid.uuid4().hex[:8]}"
-        
+
         # 2. Prepare Chapa API Call
         CHAPA_URL = "https://api.chapa.co/v1/transaction/initialize"
         CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY')
-        
+
+        if not CHAPA_SECRET_KEY:
+            return Response({
+                "status": "error",
+                "message": "Payment service is not configured. CHAPA_SECRET_KEY is missing on the server."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://expressgo.vercel.app')
+
         headers = {
             'Authorization': f'Bearer {CHAPA_SECRET_KEY}',
             'Content-Type': 'application/json'
         }
-        
+
+        # NOTE: customization MUST be a nested dict, NOT PHP bracket notation
         payload = {
             'amount': str(amount),
             'currency': 'ETB',
@@ -33,17 +43,13 @@ class ChapaPaymentView(APIView):
             'first_name': first_name,
             'last_name': last_name,
             'tx_ref': tx_ref,
-            'callback_url': 'https://expressgo.api/payment-callback',
-            'return_url': os.getenv('FRONTEND_URL', 'https://expressgo.vercel.app') + '/profile',  # Redirect back to user's bookings after payment
-            'customization[title]': 'ExpressGo Bus Ticket',
-            'customization[description]': f'Booking for trip ID: {request.data.get("trip_id", "N/A")}'
+            'callback_url': f'{FRONTEND_URL}/payment/callback',
+            'return_url': f'{FRONTEND_URL}/profile',
+            'customization': {
+                'title': 'ExpressGo Bus Ticket',
+                'description': f'Booking for trip ID: {trip_id}'
+            }
         }
-
-        if not CHAPA_SECRET_KEY:
-            return Response({
-                "status": "error",
-                "message": "Payment service is not configured. CHAPA_SECRET_KEY is missing on the server."
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         try:
             # 3. Call Chapa API
