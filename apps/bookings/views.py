@@ -4,8 +4,11 @@ import uuid
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 
 class ChapaPaymentView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         # 1. Capture details from request (or defaults for testing)
         amount = request.data.get('amount', 550)
@@ -31,7 +34,7 @@ class ChapaPaymentView(APIView):
             'last_name': last_name,
             'tx_ref': tx_ref,
             'callback_url': 'https://expressgo.api/payment-callback',
-            'return_url': 'http://localhost:5173/profile', # Redirect back to user's bookings after payment
+            'return_url': os.getenv('FRONTEND_URL', 'https://expressgo.vercel.app') + '/profile',  # Redirect back to user's bookings after payment
             'customization[title]': 'ExpressGo Bus Ticket',
             'customization[description]': f'Booking for trip ID: {request.data.get("trip_id", "N/A")}'
         }
@@ -61,6 +64,8 @@ class ChapaPaymentView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TelebirrPaymentView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         return Response({
             "status": "success",
@@ -69,6 +74,8 @@ class TelebirrPaymentView(APIView):
         })
 
 class CBEPaymentView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         return Response({
             "status": "success",

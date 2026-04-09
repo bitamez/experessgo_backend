@@ -13,3 +13,13 @@ services:
         value: "False"
       - key: DATABASE_URL
         value: "your_supabase_pooler_url"
+      - key: FRONTEND_URL
+        value: "https://expressgo.vercel.app"
+      - key: DB_NAME
+        value: "postgres"
+      - key: DB_USER
+        value: "postgres.nwshhfmcdcopweyzecmd"
+      - key: DB_HOST
+        value: "aws-0-eu-west-1.pooler.supabase.com"
+      - key: DB_PORT
+        value: "6543"
