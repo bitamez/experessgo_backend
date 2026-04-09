@@ -12,11 +12,15 @@ class ChapaPaymentView(APIView):
     def post(self, request):
         # 1. Capture details from request (or defaults for testing)
         amount = request.data.get('amount', 550)
-        email = request.data.get('email', 'customer@example.com')
+        raw_email = request.data.get('email', '')
         first_name = request.data.get('first_name', 'Customer')
         last_name = request.data.get('last_name', 'User')
         trip_id = request.data.get('trip_id', 'N/A')
         tx_ref = f"expressgo-{uuid.uuid4().hex[:8]}"
+
+        # Sanitize email — Chapa rejects empty/malformed emails
+        import re
+        email = raw_email if raw_email and re.match(r'^[^@]+@[^@]+\.[^@]+$', raw_email) else 'ticket@expressgo.et'
 
         # 2. Prepare Chapa API Call
         CHAPA_URL = "https://api.chapa.co/v1/transaction/initialize"
@@ -35,6 +39,9 @@ class ChapaPaymentView(APIView):
             'Content-Type': 'application/json'
         }
 
+        # Chapa rules: title ≤16 chars, description only letters/numbers/hyphens/underscores/spaces/dots
+        safe_trip_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(trip_id)) or 'N-A'
+
         # NOTE: customization MUST be a nested dict, NOT PHP bracket notation
         payload = {
             'amount': str(amount),
@@ -46,8 +53,8 @@ class ChapaPaymentView(APIView):
             'callback_url': f'{FRONTEND_URL}/payment/callback',
             'return_url': f'{FRONTEND_URL}/profile',
             'customization': {
-                'title': 'ExpressGo Bus Ticket',
-                'description': f'Booking for trip ID: {trip_id}'
+                'title': 'ExpressGo',          # ≤16 chars
+                'description': f'Trip {safe_trip_id}'  # only safe chars
             }
         }
 
