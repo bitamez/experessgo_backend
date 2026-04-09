@@ -18,9 +18,21 @@ class ChapaPaymentView(APIView):
         trip_id = request.data.get('trip_id', 'N/A')
         tx_ref = f"expressgo-{uuid.uuid4().hex[:8]}"
 
-        # Sanitize email — Chapa rejects empty/malformed emails
-        import re
-        email = raw_email if raw_email and re.match(r'^[^@]+@[^@]+\.[^@]+$', raw_email) else 'ticket@expressgo.et'
+        # Sanitize email — Chapa blocks reserved/test domains like example.com
+        import re, json
+        BLOCKED_DOMAINS = {'example.com', 'example.org', 'example.net', 'test.com', 'test.org', 'localhost'}
+        SAFE_FALLBACK_EMAIL = 'noreply@expressgo.et'
+
+        def is_valid_email(addr):
+            if not addr:
+                return False
+            match = re.match(r'^[^@\s]+@([^@\s]+\.[^@\s]+)$', addr.lower())
+            if not match:
+                return False
+            domain = match.group(1)
+            return domain not in BLOCKED_DOMAINS
+
+        email = raw_email if is_valid_email(raw_email) else SAFE_FALLBACK_EMAIL
 
         # 2. Prepare Chapa API Call
         CHAPA_URL = "https://api.chapa.co/v1/transaction/initialize"
