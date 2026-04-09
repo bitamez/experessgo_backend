@@ -39,7 +39,7 @@ const Home = () => {
   const handleSearch = async () => {
     setIsSearching(true);
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://experessgo-backend-1.onrender.com/api';
       const response = await fetch(`${baseUrl}/buses/schedules/`);
       const data = await response.json();
       setResults(data);

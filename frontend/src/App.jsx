@@ -33,8 +33,8 @@ function App() {
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/profile" element={<Profile />} />
-            <Route path="/bookings" element={<Profile />} />
-            <Route path="/rewards" element={<Profile />} />
+            <Route path="/bookings" element={<ComingSoon title="My Bookings" icon={Briefcase} />} />
+            <Route path="/rewards" element={<ComingSoon title="ExpressGo Rewards" icon={Users} />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/support" element={<Support />} />
