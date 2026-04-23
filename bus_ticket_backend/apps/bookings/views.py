@@ -4,25 +4,57 @@ import uuid
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 
 class ChapaPaymentView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         # 1. Capture details from request (or defaults for testing)
         amount = request.data.get('amount', 550)
-        email = request.data.get('email', 'customer@example.com')
+        raw_email = request.data.get('email', '')
         first_name = request.data.get('first_name', 'Customer')
         last_name = request.data.get('last_name', 'User')
+        trip_id = request.data.get('trip_id', 'N/A')
         tx_ref = f"expressgo-{uuid.uuid4().hex[:8]}"
-        
+
+        # Sanitize email — Chapa blocks reserved/test domains like example.com
+        import re, json
+        BLOCKED_DOMAINS = {'example.com', 'example.org', 'example.net', 'test.com', 'test.org', 'localhost'}
+        SAFE_FALLBACK_EMAIL = 'noreply@expressgo.et'
+
+        def is_valid_email(addr):
+            if not addr:
+                return False
+            match = re.match(r'^[^@\s]+@([^@\s]+\.[^@\s]+)$', addr.lower())
+            if not match:
+                return False
+            domain = match.group(1)
+            return domain not in BLOCKED_DOMAINS
+
+        email = raw_email if is_valid_email(raw_email) else SAFE_FALLBACK_EMAIL
+
         # 2. Prepare Chapa API Call
         CHAPA_URL = "https://api.chapa.co/v1/transaction/initialize"
         CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY')
-        
+
+        if not CHAPA_SECRET_KEY:
+            return Response({
+                "status": "error",
+                "message": "Payment service is not configured. CHAPA_SECRET_KEY is missing on the server."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://expressgo.vercel.app')
+
         headers = {
             'Authorization': f'Bearer {CHAPA_SECRET_KEY}',
             'Content-Type': 'application/json'
         }
-        
+
+        # Chapa rules: title ≤16 chars, description only letters/numbers/hyphens/underscores/spaces/dots
+        safe_trip_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(trip_id)) or 'N-A'
+
+        # NOTE: customization MUST be a nested dict, NOT PHP bracket notation
         payload = {
             'amount': str(amount),
             'currency': 'ETB',
@@ -30,17 +62,18 @@ class ChapaPaymentView(APIView):
             'first_name': first_name,
             'last_name': last_name,
             'tx_ref': tx_ref,
-            'callback_url': 'https://expressgo.api/payment-callback',
-            'return_url': 'http://localhost:5173/profile', # Redirect back to user's bookings after payment
-            'customization[title]': 'ExpressGo Bus Ticket',
-            'customization[description]': f'Booking for trip ID: {request.data.get("trip_id", "N/A")}'
+            'return_url': f'{FRONTEND_URL}/profile',
+            'customization': {
+                'title': 'ExpressGo',          # ≤16 chars
+                'description': f'Trip {safe_trip_id}'  # only safe chars
+            }
         }
 
         try:
             # 3. Call Chapa API
             response = requests.post(CHAPA_URL, json=payload, headers=headers)
             res_data = response.json()
-            
+
             if res_data.get('status') == 'success':
                 return Response({
                     "status": "success",
@@ -48,12 +81,20 @@ class ChapaPaymentView(APIView):
                     "tx_ref": tx_ref
                 })
             else:
-                # Fail-safe: If API fails, return a clear error
+                # Chapa message can be a nested object — always stringify it
+                raw_message = res_data.get('message', 'Failed to initialize Chapa payment')
+                if isinstance(raw_message, dict) or isinstance(raw_message, list):
+                    import json
+                    friendly_message = json.dumps(raw_message)
+                else:
+                    friendly_message = str(raw_message)
+
                 return Response({
                     "status": "error",
-                    "message": res_data.get('message', 'Failed to initialize Chapa payment')
+                    "message": friendly_message,
+                    "debug": res_data  # Full Chapa response for debugging
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
+
         except Exception as e:
             return Response({
                 "status": "error",
@@ -61,6 +102,8 @@ class ChapaPaymentView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TelebirrPaymentView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         return Response({
             "status": "success",
@@ -69,6 +112,8 @@ class TelebirrPaymentView(APIView):
         })
 
 class CBEPaymentView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         return Response({
             "status": "success",

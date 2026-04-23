@@ -259,6 +259,7 @@ const Home = () => {
         onClose={() => setIsPaymentOpen(false)} 
         amount={450} 
         bookingDetails={selectedSchedule ? {
+          schedule_id: selectedSchedule.schedule_id,
           bus: selectedSchedule.bus.bus_name,
           route: `${selectedSchedule.route.source_en} to ${selectedSchedule.route.destination_en}`,
           seat: selectedSeat

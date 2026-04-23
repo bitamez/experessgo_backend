@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CreditCard, Wallet, Smartphone, X, CheckCircle2 } from 'lucide-react';
 import axios from 'axios';
+import { supabase } from '../supabaseClient';
 
 const PaymentModal = ({ isOpen, onClose, amount, bookingDetails }) => {
   const [selectedMethod, setSelectedMethod] = useState(null);
@@ -22,11 +23,20 @@ const PaymentModal = ({ isOpen, onClose, amount, bookingDetails }) => {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://experessgo-backend-1.onrender.com/api';
       const endpoint = `${baseUrl}/bookings/payments/${selectedMethod}/`;
       
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      // Use the logged-in user's real email
+      const userEmail = session?.user?.email || bookingDetails?.email || 'ticket@expressgo.et';
+      const firstName = userEmail.split('@')[0] || bookingDetails?.passenger_name || 'Customer';
+
       const res = await axios.post(endpoint, {
         amount,
-        first_name: bookingDetails?.passenger_name || 'Customer',
-        email: bookingDetails?.email || 'customer@example.com',
-        trip_id: bookingDetails?.id || 1,
+        first_name: firstName,
+        email: userEmail,
+        trip_id: bookingDetails?.id || bookingDetails?.schedule_id || 'N-A',
+      }, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
 
       if (res.data.checkout_url) {
@@ -43,7 +53,22 @@ const PaymentModal = ({ isOpen, onClose, amount, bookingDetails }) => {
     } catch (error) {
       console.error("Payment initialization failed", error);
       setIsProcessing(false);
-      alert("Payment Error: " + (error.response?.data?.message || "Check if Django backend is running."));
+
+      // Safely extract a readable message — Chapa/DRF can return nested objects
+      const data = error.response?.data;
+      let errMsg = error.message || "Failed to connect to backend";
+      if (data) {
+        const raw = data.message || data.detail || data.error;
+        if (typeof raw === 'string') {
+          errMsg = raw;
+        } else if (raw !== undefined) {
+          errMsg = JSON.stringify(raw);
+        } else {
+          errMsg = JSON.stringify(data);
+        }
+      }
+
+      alert("Payment Error: " + errMsg);
     }
   };
 

@@ -103,14 +103,10 @@ const Login = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <button className="glass-button flex items-center justify-center space-x-2">
+        <div className="grid grid-cols-1 gap-4">
+          <button className="glass-button flex items-center justify-center space-x-2 w-full">
             <UserPlus className="w-5 h-5" />
-            <span>Google</span>
-          </button>
-          <button className="glass-button flex items-center justify-center space-x-2">
-            <User className="w-5 h-5" />
-            <span>GitHub</span>
+            <span>Continue with Google</span>
           </button>
         </div>
 

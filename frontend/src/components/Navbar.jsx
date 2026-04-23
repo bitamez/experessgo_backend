@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Bus, Languages, User, LogIn } from 'lucide-react';
+import { Bus, Languages, User, LogIn, Download } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useLanguage } from '../context/LanguageContext';
 
 const Navbar = ({ toggleChat }) => {
   const { language, toggleLanguage, t } = useLanguage();
   const [session, setSession] = useState(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -19,6 +20,33 @@ const Navbar = ({ toggleChat }) => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    
+    // Check if app is already installed
+    window.addEventListener('appinstalled', () => {
+      setDeferredPrompt(null);
+    });
+
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
 
   return (
     <nav className="glass-card mt-6 px-8 py-4 flex items-center justify-between border-white/5 sticky top-6 z-50">
@@ -49,6 +77,16 @@ const Navbar = ({ toggleChat }) => {
           <Languages size={15} />
           <span className="text-[9px] font-black uppercase tracking-widest">{language === 'en' ? 'EN' : 'አማ'}</span>
         </button>
+        
+        {deferredPrompt && (
+          <button 
+            onClick={handleInstallClick}
+            className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 rounded-lg transition-all text-white border border-primary-500/50 bg-primary-500/10 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+          >
+            <Download size={15} className="text-primary-500" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-primary-500 hidden sm:inline">Install App</span>
+          </button>
+        )}
         
         {session ? (
           <Link to="/profile" className="flex items-center gap-2 glass-button !px-4 !py-2">
