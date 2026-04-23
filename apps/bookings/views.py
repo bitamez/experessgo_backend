@@ -62,7 +62,6 @@ class ChapaPaymentView(APIView):
             'first_name': first_name,
             'last_name': last_name,
             'tx_ref': tx_ref,
-            'callback_url': f'{FRONTEND_URL}/payment/callback',
             'return_url': f'{FRONTEND_URL}/profile',
             'customization': {
                 'title': 'ExpressGo',          # ≤16 chars

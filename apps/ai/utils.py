@@ -11,15 +11,8 @@ class AIProcessor:
 
         api_key = os.getenv('GEMINI_API_KEY')
         
-        mock_responses = [
-            "I can definitely help with that! We have several premium buses scheduled for today. Would you like to check the 6:00 AM or 2:00 PM departure?",
-            "For Adama and Hawassa, we have luxury buses leaving every 2 hours. Is there a specific time you'd prefer to travel?",
-            "Great choice! Our premium buses feature extra legroom and free Wi-Fi for your journey to Dire Dawa.",
-            "I recommend booking at least 24 hours in advance to secure the best seats near the front!",
-            "Welcome! I can find you the express schedule for your next trip. Where would you like to go today?"
-        ]
-        
-        mock_response = random.choice(mock_responses)
+        # If API key is missing or fails, provide a reliable fallback that isn't randomly mismatched.
+        mock_response = "I am currently in offline mode (API key missing). I can still help you book a ticket! Please use the search bar above to find available buses to Adama, Hawassa, or Dire Dawa."
         
         if not api_key:
             return mock_response
