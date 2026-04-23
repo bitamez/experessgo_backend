@@ -20,7 +20,7 @@ const PaymentModal = ({ isOpen, onClose, amount, bookingDetails }) => {
     setIsProcessing(true);
 
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://expressgo-backend-1.onrender.com/api';
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://experessgo-backend-1.onrender.com/api';
       const endpoint = `${baseUrl}/bookings/payments/${selectedMethod}/`;
       
       const { data: { session } } = await supabase.auth.getSession();
