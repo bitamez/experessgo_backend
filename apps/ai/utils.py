@@ -37,7 +37,7 @@ class AIProcessor:
 
         if not api_key:
             print("DEBUG: GEMINI_API_KEY not set — using offline fallback.")
-            return AIProcessor._build_offline_response(message)
+            return "DEVELOPER ERROR: GEMINI_API_KEY is completely missing from the Render dashboard. Please add it in Render -> Environment Variables."
 
         try:
             genai.configure(api_key=api_key)
@@ -85,16 +85,17 @@ class AIProcessor:
 
         except Exception as e:
             err_str = str(e).lower()
+            error_details = str(e)
             print(f"DEBUG: Gemini API Error — {e}")
 
             if 'api_key' in err_str or 'invalid' in err_str or '400' in err_str:
-                print("DEBUG: Invalid or expired GEMINI_API_KEY.")
+                return f"DEVELOPER ERROR: Gemini API key is invalid or rejected. Details: {error_details}"
             elif 'quota' in err_str or '429' in err_str:
-                print("DEBUG: Gemini quota exceeded.")
+                return "DEVELOPER ERROR: Gemini Quota Exceeded (You ran out of free credits)."
             elif 'network' in err_str or 'timeout' in err_str or 'connection' in err_str:
-                print("DEBUG: Network error reaching Gemini.")
+                return f"DEVELOPER ERROR: Network failure reaching Gemini. Details: {error_details}"
 
-            return AIProcessor._build_offline_response(message)
+            return f"DEVELOPER ERROR: Unexpected error connecting to AI: {error_details}"
 
     @staticmethod
     def generate_recommendations(user=None):
