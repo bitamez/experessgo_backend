@@ -9,93 +9,113 @@ class AIProcessor:
     def _build_offline_response(message: str) -> str:
         """Context-aware offline reply based on user message keywords."""
         msg = message.lower()
+
         if any(k in msg for k in ['price', 'cost', 'fare', 'how much']):
             return (
                 "Typical fares: Addis Ababa → Adama (350 ETB), "
                 "Addis Ababa → Hawassa (550 ETB), Bahir Dar → Addis Ababa (650 ETB). "
-                "I'm in offline mode right now — use the search bar above for exact prices."
+                "Live prices may vary — please use the search above."
             )
+
         if any(k in msg for k in ['schedule', 'time', 'when', 'depart']):
             return (
-                "Popular departure times: 06:00 AM, 08:30 AM, 11:00 AM, 2:00 PM. "
-                "I'm in offline mode — please use the search bar to find live schedules."
+                "Common departure times: 06:00 AM, 08:30 AM, 11:00 AM, 2:00 PM. "
+                "Check the search bar for real-time schedules."
             )
+
         if any(k in msg for k in ['book', 'ticket', 'seat', 'reserve']):
             return (
-                "To book a ticket: search your route in the bar above → select a schedule → "
-                "choose your seat → proceed to payment. I'm in offline mode but the booking system works fine!"
+                "To book: search your route → choose a schedule → select seat → confirm payment. "
+                "Booking system is available above."
             )
+
         return (
-            "I'm in offline mode right now (the AI server is warming up). "
-            "You can still search for buses using the search bar above! "
-            "Popular routes: Addis Ababa → Adama (350 ETB), → Hawassa (550 ETB), Bahir Dar → Addis Ababa (650 ETB)."
+            "I'm currently in offline mode, but you can still search routes and book tickets above. "
+            "Popular routes: Addis Ababa → Adama, Hawassa, Bahir Dar."
         )
 
     @staticmethod
     def get_chat_response(message: str) -> str:
         api_key = os.getenv('GEMINI_API_KEY')
 
+        # ✅ If API key missing → fallback (no developer message shown to users)
         if not api_key:
-            print("DEBUG: GEMINI_API_KEY not set — using offline fallback.")
-            return "DEVELOPER ERROR: GEMINI_API_KEY is completely missing from the Render dashboard. Please add it in Render -> Environment Variables."
+            print("DEBUG: GEMINI_API_KEY missing.")
+            return AIProcessor._build_offline_response(message)
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-pro')
 
-            # Fetch upcoming schedules for context
+            # ✅ FIXED MODEL
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+
+            # -------- Fetch Schedule Context --------
             today = date.today()
             schedule_context = "Available Upcoming Schedules:\n"
+
             try:
                 from apps.buses.models import Schedule
+
                 upcoming = (
                     Schedule.objects
                     .select_related('route', 'bus')
                     .filter(travel_date__gte=today)
                     .order_by('travel_date', 'departure_time')[:10]
                 )
+
                 if upcoming.exists():
                     for s in upcoming:
                         schedule_context += (
-                            f"- {s.route.source_en} to {s.route.destination_en} "
-                            f"on {s.travel_date} at {s.departure_time} "
-                            f"(Bus: {s.bus.bus_name}, Seats: {s.bus.total_seats})\n"
+                            f"- {s.route.source_en} → {s.route.destination_en} | "
+                            f"{s.travel_date} at {s.departure_time} | "
+                            f"Bus: {s.bus.bus_name} ({s.bus.total_seats} seats)\n"
                         )
                 else:
-                    schedule_context += "No schedules currently in database.\n"
-            except Exception as db_err:
-                print(f"DEBUG: DB error fetching schedules: {db_err}")
-                schedule_context += "Could not fetch schedules from database.\n"
+                    schedule_context += "No schedules available.\n"
 
+            except Exception as db_err:
+                print(f"DEBUG: DB error: {db_err}")
+                schedule_context += "Schedule data unavailable.\n"
+
+            # -------- AI System Prompt --------
             system_prompt = (
-                "You are an AI travel assistant for 'ExpressGo', Ethiopia's premium bus service. "
-                "Help users with schedules, availability, prices (typically 350-700 ETB), and booking. "
-                "Use the following real-time data to answer accurately:\n"
-                f"{schedule_context}\n"
-                "Keep responses concise, friendly, and under 3 sentences."
+                "You are an AI travel assistant for ExpressGo (Ethiopia bus service). "
+                "Help with routes, schedules, booking, and prices (350–700 ETB). "
+                "Be concise (max 2–3 sentences), friendly, and helpful.\n\n"
+                f"{schedule_context}"
             )
 
+            # -------- Start Chat --------
             chat = model.start_chat(history=[
                 {"role": "user", "parts": [system_prompt]},
-                {"role": "model", "parts": ["Understood! I'm ready to help as the ExpressGo AI assistant."]},
+                {"role": "model", "parts": ["Ready to assist with ExpressGo travel."]},
             ])
 
-            response = chat.send_message(message)
-            return response.text
+            response = chat.send_message(
+                message,
+                request_options={"timeout": 10}  # ✅ prevents hanging
+            )
+
+            # ✅ Safe response handling
+            if hasattr(response, "text") and response.text:
+                return response.text.strip()
+
+            return AIProcessor._build_offline_response(message)
 
         except Exception as e:
-            err_str = str(e).lower()
-            error_details = str(e)
-            print(f"DEBUG: Gemini API Error — {e}")
+            print(f"DEBUG: Gemini Error: {e}")
 
-            if 'api_key' in err_str or 'invalid' in err_str or '400' in err_str:
-                return f"DEVELOPER ERROR: Gemini API key is invalid or rejected. Details: {error_details}"
-            elif 'quota' in err_str or '429' in err_str:
-                return "DEVELOPER ERROR: Gemini Quota Exceeded (You ran out of free credits)."
-            elif 'network' in err_str or 'timeout' in err_str or 'connection' in err_str:
-                return f"DEVELOPER ERROR: Network failure reaching Gemini. Details: {error_details}"
+            err = str(e).lower()
 
-            return f"DEVELOPER ERROR: Unexpected error connecting to AI: {error_details}"
+            # ✅ Handle known cases silently → fallback
+            if any(k in err for k in [
+                "api_key", "invalid", "quota", "429",
+                "timeout", "network", "connection", "404"
+            ]):
+                return AIProcessor._build_offline_response(message)
+
+            # ✅ Unknown error → still fallback (never expose raw error to users)
+            return AIProcessor._build_offline_response(message)
 
     @staticmethod
     def generate_recommendations(user=None):
