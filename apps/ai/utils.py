@@ -46,8 +46,8 @@ class AIProcessor:
         try:
             genai.configure(api_key=api_key)
 
-            # ✅ FIXED MODEL
-            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            # ✅ FIXED MODEL (Must be gemini-pro to avoid 404 Model Not Found)
+            model = genai.GenerativeModel('gemini-pro')
 
             # -------- Fetch Schedule Context --------
             today = date.today()
