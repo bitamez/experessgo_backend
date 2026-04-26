@@ -21,7 +21,7 @@ class ChapaPaymentView(APIView):
         # Sanitize email — Chapa blocks reserved/test domains like example.com
         import re, json
         BLOCKED_DOMAINS = {'example.com', 'example.org', 'example.net', 'test.com', 'test.org', 'localhost'}
-        SAFE_FALLBACK_EMAIL = 'noreply@expressgo.et'
+        SAFE_FALLBACK_EMAIL = 'customer@gmail.com'
 
         def is_valid_email(addr):
             if not addr:
