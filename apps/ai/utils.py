@@ -47,7 +47,7 @@ class AIProcessor:
             genai.configure(api_key=api_key)
 
             # ✅ FIXED MODEL (Must be gemini-pro to avoid 404 Model Not Found)
-            model = genai.GenerativeModel('gemini-pro')
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
             # -------- Fetch Schedule Context --------
             today = date.today()
@@ -104,18 +104,7 @@ class AIProcessor:
 
         except Exception as e:
             print(f"DEBUG: Gemini Error: {e}")
-
-            err = str(e).lower()
-
-            # ✅ Handle known cases silently → fallback
-            if any(k in err for k in [
-                "api_key", "invalid", "quota", "429",
-                "timeout", "network", "connection", "404"
-            ]):
-                return AIProcessor._build_offline_response(message)
-
-            # ✅ Unknown error → still fallback (never expose raw error to users)
-            return AIProcessor._build_offline_response(message)
+            return f"DEVELOPER ERROR: {e}"
 
     @staticmethod
     def generate_recommendations(user=None):
