@@ -46,8 +46,8 @@ class AIProcessor:
         try:
             genai.configure(api_key=api_key)
 
-            # ✅ FIXED MODEL (Must be gemini-pro to avoid 404 Model Not Found)
-            model = genai.GenerativeModel('gemini-pro')
+            # Use 1.5-flash for faster response times on Render
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
             # -------- Fetch Schedule Context --------
             today = date.today()
@@ -93,7 +93,8 @@ class AIProcessor:
 
             response = chat.send_message(
                 message,
-                request_options={"timeout": 10}  # ✅ prevents hanging
+                # Increase timeout slightly for cold starts
+                request_options={"timeout": 12} 
             )
 
             # ✅ Safe response handling
@@ -103,8 +104,9 @@ class AIProcessor:
             return AIProcessor._build_offline_response(message)
 
         except Exception as e:
-            print(f"DEBUG: Gemini Error: {e}")
-            return f"DEVELOPER ERROR: {e}"
+            print(f"CRITICAL ERROR: {e}")
+            # Fallback to the keyword-based system instead of showing raw error
+            return AIProcessor._build_offline_response(message)
 
     @staticmethod
     def generate_recommendations(user=None):
