@@ -14,7 +14,7 @@ class SupabaseUser(models.Model):
 
     class Meta:
         managed = False # Don't let Django manage translations for existing tables
-        db_table = 'public.users'
+        db_table = 'users'
 
     def __str__(self):
         return self.full_name or str(self.id)

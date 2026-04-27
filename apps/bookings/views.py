@@ -72,10 +72,19 @@ class ChapaPaymentView(APIView):
         # --- NEW: Save the booking in the database ---
         user_id = request.data.get('user_id')
         seat_number = request.data.get('seat')
+        first_name = request.data.get('first_name', 'Passenger')
         if user_id and str(trip_id).isdigit() and seat_number:
             try:
+                from apps.users.models import SupabaseUser
                 from apps.buses.models import Schedule, Seat
                 from apps.bookings.models import Booking, Payment
+                
+                # FIX: Ensure user exists in 'users' table to satisfy foreign key constraint
+                user_obj, _ = SupabaseUser.objects.get_or_create(
+                    id=user_id,
+                    defaults={'full_name': first_name}
+                )
+                
                 schedule_obj = Schedule.objects.get(schedule_id=trip_id)
                 # Find the exact seat for this bus, or create it if missing
                 seat_obj, _ = Seat.objects.get_or_create(bus=schedule_obj.bus, seat_number=str(seat_number))
@@ -84,7 +93,7 @@ class ChapaPaymentView(APIView):
                     booking, created = Booking.objects.get_or_create(
                         schedule=schedule_obj,
                         seat=seat_obj,
-                        defaults={'user_id': user_id}
+                        defaults={'user': user_obj}
                     )
                     # Create a pending payment record
                     Payment.objects.get_or_create(
