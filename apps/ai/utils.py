@@ -80,8 +80,11 @@ class AIProcessor:
                 f"{schedule_context}"
             )
 
-            # -------- New google.genai SDK --------
-            client = genai.Client(api_key=api_key)
+            # -------- New google.genai SDK (v1alpha for preview models) --------
+            client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(api_version='v1alpha'),
+            )
 
             response = client.models.generate_content(
                 model='gemini-2.5-flash-preview-04-17',
