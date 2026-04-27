@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import os
 from datetime import date
 
@@ -38,17 +39,11 @@ class AIProcessor:
     def get_chat_response(message: str) -> str:
         api_key = os.getenv('GEMINI_API_KEY')
 
-        # ✅ If API key missing → fallback (no developer message shown to users)
         if not api_key:
             print("DEBUG: GEMINI_API_KEY missing.")
             return AIProcessor._build_offline_response(message)
 
         try:
-            genai.configure(api_key=api_key)
-
-            # Use 1.5-flash for faster response times on Render
-            model = genai.GenerativeModel('gemini-1.5-flash')
-
             # -------- Fetch Schedule Context --------
             today = date.today()
             schedule_context = "Available Upcoming Schedules:\n"
@@ -74,10 +69,10 @@ class AIProcessor:
                     schedule_context += "No schedules available.\n"
 
             except Exception as db_err:
-                print(f"DEBUG: DB error: {db_err}")
+                print(f"DEBUG: DB error fetching schedules: {db_err}")
                 schedule_context += "Schedule data unavailable.\n"
 
-            # -------- AI System Prompt --------
+            # -------- System Prompt --------
             system_prompt = (
                 "You are an AI travel assistant for ExpressGo (Ethiopia bus service). "
                 "Help with routes, schedules, booking, and prices (350–700 ETB). "
@@ -85,27 +80,26 @@ class AIProcessor:
                 f"{schedule_context}"
             )
 
-            # -------- Start Chat --------
-            chat = model.start_chat(history=[
-                {"role": "user", "parts": [system_prompt]},
-                {"role": "model", "parts": ["Ready to assist with ExpressGo travel."]},
-            ])
+            # -------- New google.genai SDK --------
+            client = genai.Client(api_key=api_key)
 
-            response = chat.send_message(
-                message,
-                # Increase timeout slightly for cold starts
-                request_options={"timeout": 12} 
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=message,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    max_output_tokens=200,
+                    temperature=0.7,
+                ),
             )
 
-            # ✅ Safe response handling
-            if hasattr(response, "text") and response.text:
+            if response.text:
                 return response.text.strip()
 
             return AIProcessor._build_offline_response(message)
 
         except Exception as e:
             print(f"CRITICAL ERROR: {e}")
-            # Fallback to the keyword-based system instead of showing raw error
             return AIProcessor._build_offline_response(message)
 
     @staticmethod
