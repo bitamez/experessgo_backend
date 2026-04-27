@@ -79,8 +79,9 @@ class ChapaPaymentView(APIView):
                 from apps.bookings.models import Booking, Payment
                 user_obj = SupabaseUser.objects.get(id=user_id)
                 schedule_obj = Schedule.objects.get(schedule_id=trip_id)
-                # Find the exact seat for this bus
-                seat_obj = Seat.objects.filter(bus=schedule_obj.bus, seat_number=seat_number).first()
+                # Find the exact seat for this bus, or create it if missing
+                seat_obj, _ = Seat.objects.get_or_create(bus=schedule_obj.bus, seat_number=str(seat_number))
+                
                 if seat_obj:
                     booking, created = Booking.objects.get_or_create(
                         schedule=schedule_obj,
@@ -88,11 +89,13 @@ class ChapaPaymentView(APIView):
                         defaults={'user': user_obj}
                     )
                     # Create a pending payment record
-                    Payment.objects.create(
+                    Payment.objects.get_or_create(
                         booking=booking,
-                        amount=amount,
-                        payment_method='Chapa',
-                        status='pending'
+                        defaults={
+                            'amount': amount,
+                            'payment_method': 'Chapa',
+                            'status': 'pending'
+                        }
                     )
             except Exception as e:
                 print("Failed to save booking:", str(e))
