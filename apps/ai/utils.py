@@ -84,7 +84,7 @@ class AIProcessor:
             client = genai.Client(api_key=api_key)
 
             response = client.models.generate_content(
-                model='gemini-2.0-flash',
+                model='gemini-1.5-flash',
                 contents=message,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,

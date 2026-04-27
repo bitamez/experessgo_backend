@@ -95,9 +95,18 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ),
+    # Throttling to protect Gemini API quota (15 RPM free tier limit)
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '3/minute',
+        'user': '10/minute',
+    },
 }
 
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY')
 
 # ================= Email Configuration (Gmail SMTP) =================
