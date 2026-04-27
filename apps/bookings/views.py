@@ -69,6 +69,35 @@ class ChapaPaymentView(APIView):
             }
         }
 
+        # --- NEW: Save the booking in the database ---
+        user_id = request.data.get('user_id')
+        seat_number = request.data.get('seat')
+        if user_id and str(trip_id).isdigit() and seat_number:
+            try:
+                from apps.users.models import SupabaseUser
+                from apps.buses.models import Schedule, Seat
+                from apps.bookings.models import Booking, Payment
+                user_obj = SupabaseUser.objects.get(id=user_id)
+                schedule_obj = Schedule.objects.get(schedule_id=trip_id)
+                # Find the exact seat for this bus
+                seat_obj = Seat.objects.filter(bus=schedule_obj.bus, seat_number=seat_number).first()
+                if seat_obj:
+                    booking, created = Booking.objects.get_or_create(
+                        schedule=schedule_obj,
+                        seat=seat_obj,
+                        defaults={'user': user_obj}
+                    )
+                    # Create a pending payment record
+                    Payment.objects.create(
+                        booking=booking,
+                        amount=amount,
+                        payment_method='Chapa',
+                        status='pending'
+                    )
+            except Exception as e:
+                print("Failed to save booking:", str(e))
+        # ---------------------------------------------
+
         try:
             # 3. Call Chapa API
             response = requests.post(CHAPA_URL, json=payload, headers=headers)
