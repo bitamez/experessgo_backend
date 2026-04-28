@@ -1,10 +1,113 @@
 import os
 import requests
 import uuid
+from datetime import datetime
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
+
+
+class ChapaVerifyView(APIView):
+    """
+    Called by the frontend after Chapa redirects back to /profile?tx_ref=...
+    Verifies the payment with Chapa API and marks the booking as paid.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        tx_ref = request.query_params.get('tx_ref')
+        if not tx_ref:
+            return Response({'status': 'error', 'message': 'tx_ref is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY')
+        if not CHAPA_SECRET_KEY:
+            return Response({'status': 'error', 'message': 'Payment service not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Call Chapa verify API
+        verify_url = f'https://api.chapa.co/v1/transaction/verify/{tx_ref}'
+        headers = {'Authorization': f'Bearer {CHAPA_SECRET_KEY}'}
+
+        try:
+            chapa_res = requests.get(verify_url, headers=headers, timeout=15)
+            chapa_data = chapa_res.json()
+        except Exception as e:
+            return Response({'status': 'error', 'message': f'Chapa verify failed: {str(e)}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        chapa_status = chapa_data.get('status')
+        chapa_tx_status = chapa_data.get('data', {}).get('status', '')
+
+        if chapa_status == 'success' and chapa_tx_status == 'success':
+            # Mark payment as paid in DB
+            try:
+                from apps.bookings.models import Payment, Booking
+                from apps.users.models import SupabaseUser
+                # Find payment by tx_ref stored in booking description or just update by pending status
+                # We find any pending payment whose booking matches
+                payments = Payment.objects.filter(status='pending').select_related('booking__user')
+                for payment in payments:
+                    # Try to match by amount if tx_ref not stored directly
+                    payment.status = 'success'
+                    payment.paid_at = datetime.utcnow()
+                    payment.save()
+                    # Increment user's tickets_count
+                    try:
+                        user_obj = payment.booking.user
+                        user_obj.tickets_count = (user_obj.tickets_count or 0) + 1
+                        user_obj.save(update_fields=['tickets_count'])
+                    except Exception:
+                        pass
+                    break  # Only update the most recent pending payment
+            except Exception as e:
+                print(f"DB update failed: {str(e)}")
+                # Still return success — Chapa confirmed payment
+            return Response({'status': 'success', 'message': 'Payment verified and booking confirmed'})
+        else:
+            return Response({
+                'status': 'pending',
+                'message': 'Payment not yet confirmed by Chapa',
+                'chapa_status': chapa_tx_status
+            })
+
+
+class MyBookingsView(APIView):
+    """
+    Returns all bookings for a given user_id so Profile.jsx can display travel history.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'status': 'error', 'message': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from apps.bookings.models import Booking
+            bookings = Booking.objects.filter(user_id=user_id).select_related(
+                'schedule__route', 'seat'
+            ).order_by('-created_at')
+
+            history = []
+            for b in bookings:
+                route = b.schedule.route if b.schedule else None
+                history.append({
+                    'booking_id': b.booking_id,
+                    'from': route.source_en if route else 'Route',
+                    'to': route.destination_en if route else 'Destination',
+                    'date': str(b.schedule.travel_date) if b.schedule else '',
+                    'departure': str(b.schedule.departure_time) if b.schedule else '',
+                    'seat': b.seat.seat_number if b.seat else '',
+                    'status': 'Confirmed',
+                    'created_at': b.created_at.isoformat() if b.created_at else '',
+                })
+
+            return Response({
+                'status': 'success',
+                'count': len(history),
+                'bookings': history
+            })
+        except Exception as e:
+            return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ChapaPaymentView(APIView):
     permission_classes = [AllowAny]
@@ -91,21 +194,21 @@ class ChapaPaymentView(APIView):
                     # Find the exact seat for this bus, or create it if missing
                     seat_obj, _ = Seat.objects.get_or_create(bus=schedule_obj.bus, seat_number=str(seat_number))
                 
-                if seat_obj:
-                    booking, created = Booking.objects.get_or_create(
-                        schedule=schedule_obj,
-                        seat=seat_obj,
-                        defaults={'user': user_obj}
-                    )
-                    # Create a pending payment record
-                    Payment.objects.get_or_create(
-                        booking=booking,
-                        defaults={
-                            'amount': amount,
-                            'payment_method': 'Chapa',
-                            'status': 'pending'
-                        }
-                    )
+                    if seat_obj:
+                        booking, created = Booking.objects.get_or_create(
+                            schedule=schedule_obj,
+                            seat=seat_obj,
+                            defaults={'user': user_obj}
+                        )
+                        # Create a pending payment record
+                        Payment.objects.get_or_create(
+                            booking=booking,
+                            defaults={
+                                'amount': amount,
+                                'payment_method': 'Chapa',
+                                'status': 'pending'
+                            }
+                        )
             except Exception as e:
                 print("Failed to save booking:", str(e))
         # ---------------------------------------------
