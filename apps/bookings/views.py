@@ -18,87 +18,95 @@ class ChapaPaymentView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        amount     = request.data.get('amount', 550)
-        raw_email  = request.data.get('email', '')
-        first_name = request.data.get('first_name', 'Customer')
-        last_name  = request.data.get('last_name', 'User')
-        trip_id    = request.data.get('trip_id', 'N/A')
-        user_id    = request.data.get('user_id', '')
-        seat       = request.data.get('seat', '')
-        tx_ref     = f"expressgo-{uuid.uuid4().hex[:12]}"
+        try:
+            amount     = request.data.get('amount', 550)
+            raw_email  = request.data.get('email', '')
+            first_name = request.data.get('first_name', 'Customer')
+            last_name  = request.data.get('last_name', 'User')
+            trip_id    = request.data.get('trip_id', 'N/A')
+            user_id    = request.data.get('user_id', '')
+            seat       = request.data.get('seat', '')
+            tx_ref     = f"expressgo-{uuid.uuid4().hex[:12]}"
 
-        # ── Sanitize email ──────────────────────────────────────────
-        BLOCKED_DOMAINS   = {'example.com', 'example.org', 'example.net',
-                              'test.com', 'test.org', 'localhost'}
-        SAFE_EMAIL        = 'customer@gmail.com'
+            # ── Sanitize email ──────────────────────────────────────────
+            BLOCKED_DOMAINS   = {'example.com', 'example.org', 'example.net',
+                                  'test.com', 'test.org', 'localhost'}
+            SAFE_EMAIL        = 'customer@gmail.com'
 
-        def is_valid_email(addr):
-            if not addr:
-                return False
-            m = re.match(r'^[^@\s]+@([^@\s]+\.[^@\s]+)$', addr.lower())
-            return bool(m) and m.group(1) not in BLOCKED_DOMAINS
+            def is_valid_email(addr):
+                if not addr:
+                    return False
+                m = re.match(r'^[^@\s]+@([^@\s]+\.[^@\s]+)$', str(addr).lower())
+                return bool(m) and m.group(1) not in BLOCKED_DOMAINS
 
-        email = raw_email if is_valid_email(raw_email) else SAFE_EMAIL
+            email = raw_email if is_valid_email(raw_email) else SAFE_EMAIL
 
-        # ── Check Chapa key ─────────────────────────────────────────
-        CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY')
-        if not CHAPA_SECRET_KEY:
+            # ── Check Chapa key ─────────────────────────────────────────
+            CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY')
+            if not CHAPA_SECRET_KEY:
+                return Response({
+                    'status': 'error',
+                    'message': 'Payment service not configured (missing CHAPA_SECRET_KEY).'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://expressgo.vercel.app')
+
+            # Chapa title ≤ 16 chars, description only safe chars
+            safe_trip_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(trip_id)) or 'NA'
+
+            payload = {
+                'amount':      str(amount),
+                'currency':    'ETB',
+                'email':       email,
+                'first_name':  str(first_name),
+                'last_name':   str(last_name),
+                'tx_ref':      tx_ref,
+                'return_url':  f'{FRONTEND_URL}/profile',
+                'customization': {
+                    'title':       'ExpressGo',
+                    'description': f'Trip {safe_trip_id}',
+                },
+                # Pass booking details as metadata — Chapa returns them in verify response
+                'meta': {
+                    'user_id': str(user_id),
+                    'trip_id': str(trip_id),
+                    'seat':    str(seat),
+                    'amount':  str(amount),
+                },
+            }
+
+            headers = {
+                'Authorization': f'Bearer {CHAPA_SECRET_KEY}',
+                'Content-Type':  'application/json',
+            }
+
+            try:
+                res      = requests.post('https://api.chapa.co/v1/transaction/initialize',
+                                         json=payload, headers=headers, timeout=15)
+                res_data = res.json()
+            except Exception as e:
+                return Response({'status': 'error', 'message': f'Chapa request failed: {e}'},
+                                status=status.HTTP_502_BAD_GATEWAY)
+
+            if res_data.get('status') == 'success':
+                return Response({
+                    'status':       'success',
+                    'checkout_url': res_data['data']['checkout_url'],
+                    'tx_ref':       tx_ref,
+                })
+
+            # Chapa returned an error — stringify the message safely
+            raw_msg = res_data.get('message', 'Failed to initialize Chapa payment')
+            msg     = json.dumps(raw_msg) if isinstance(raw_msg, (dict, list)) else str(raw_msg)
+            return Response({'status': 'error', 'message': msg, 'debug': res_data},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except Exception as global_e:
+            import traceback
             return Response({
                 'status': 'error',
-                'message': 'Payment service not configured (missing CHAPA_SECRET_KEY).'
+                'message': f"Unexpected server error: {str(global_e)}",
+                'traceback': traceback.format_exc()
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://expressgo.vercel.app')
-
-        # Chapa title ≤ 16 chars, description only safe chars
-        safe_trip_id = re.sub(r'[^a-zA-Z0-9_\-]', '', str(trip_id)) or 'NA'
-
-        payload = {
-            'amount':      str(amount),
-            'currency':    'ETB',
-            'email':       email,
-            'first_name':  first_name,
-            'last_name':   last_name,
-            'tx_ref':      tx_ref,
-            'return_url':  f'{FRONTEND_URL}/profile',
-            'customization': {
-                'title':       'ExpressGo',
-                'description': f'Trip {safe_trip_id}',
-            },
-            # Pass booking details as metadata — Chapa returns them in verify response
-            'meta': {
-                'user_id': str(user_id),
-                'trip_id': str(trip_id),
-                'seat':    str(seat),
-                'amount':  str(amount),
-            },
-        }
-
-        headers = {
-            'Authorization': f'Bearer {CHAPA_SECRET_KEY}',
-            'Content-Type':  'application/json',
-        }
-
-        try:
-            res      = requests.post('https://api.chapa.co/v1/transaction/initialize',
-                                     json=payload, headers=headers, timeout=15)
-            res_data = res.json()
-        except Exception as e:
-            return Response({'status': 'error', 'message': f'Chapa request failed: {e}'},
-                            status=status.HTTP_502_BAD_GATEWAY)
-
-        if res_data.get('status') == 'success':
-            return Response({
-                'status':       'success',
-                'checkout_url': res_data['data']['checkout_url'],
-                'tx_ref':       tx_ref,
-            })
-
-        # Chapa returned an error — stringify the message safely
-        raw_msg = res_data.get('message', 'Failed to initialize Chapa payment')
-        msg     = json.dumps(raw_msg) if isinstance(raw_msg, (dict, list)) else str(raw_msg)
-        return Response({'status': 'error', 'message': msg, 'debug': res_data},
-                        status=status.HTTP_400_BAD_REQUEST)
 
 
 # ─────────────────────────────────────────
