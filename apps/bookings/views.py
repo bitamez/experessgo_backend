@@ -61,7 +61,7 @@ class ChapaPaymentView(APIView):
                 'first_name':  str(first_name),
                 'last_name':   str(last_name),
                 'tx_ref':      tx_ref,
-                'return_url':  f'{FRONTEND_URL}/profile',
+                'return_url':  f'{FRONTEND_URL}/profile?tx_ref={tx_ref}',
                 'customization': {
                     'title':       'ExpressGo',
                     'description': f'Trip {safe_trip_id}',
