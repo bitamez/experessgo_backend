@@ -36,6 +36,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'bus_ticket_backend.json_middleware.Json500Middleware',
 ]
 
 ROOT_URLCONF = 'bus_ticket_backend.urls'
