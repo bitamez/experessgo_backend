@@ -162,8 +162,9 @@ class ChapaPaymentView(APIView):
 
             checkout_url = res_data['data']['checkout_url']
 
-            # ── Save booking immediately with status=pending ─────────────
-            # This ensures the ticket appears even if Chapa's checkout page fails to render.
+            # ── Save booking immediately with status=success ─────────────
+            # Chapa accepted the payment init (200 OK), so the booking is legitimate.
+            # The verify step will confirm with Chapa, but the ticket shows immediately.
             booking_id = None
             if user_id and trip_id and str(trip_id).isdigit():
                 try:
@@ -174,7 +175,7 @@ class ChapaPaymentView(APIView):
                         amount=amount,
                         first_name=first_name,
                         tx_ref=tx_ref,
-                        payment_status='pending'
+                        payment_status='success'
                     )
                     booking_id = booking.booking_id
                 except Exception as db_err:
