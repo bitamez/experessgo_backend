@@ -293,9 +293,17 @@ class MyBookingsView(APIView):
             history = []
             for b in bookings:
                 route = getattr(b.schedule, 'route', None) if b.schedule else None
-                # Get payment status (default confirmed for existing bookings)
+                # Get payment status
                 payments = list(b.payment_set.all())
                 pay_status = payments[0].status if payments else 'pending'
+                
+                if pay_status == 'success':
+                    b_status = 'Confirmed'
+                elif pay_status == 'cancelled':
+                    b_status = 'Cancelled'
+                else:
+                    b_status = 'Pending'
+
                 history.append({
                     'booking_id': b.booking_id,
                     'from':       getattr(route, 'source_en',      'Route')       if route else 'Route',
@@ -303,7 +311,7 @@ class MyBookingsView(APIView):
                     'date':       str(b.schedule.travel_date)    if b.schedule else '',
                     'departure':  str(b.schedule.departure_time) if b.schedule else '',
                     'seat':       b.seat.seat_number             if b.seat     else '',
-                    'status':     'Confirmed' if pay_status == 'success' else 'Pending',
+                    'status':     b_status,
                     'created_at': b.created_at.isoformat()       if b.created_at else '',
                 })
 
@@ -337,3 +345,42 @@ class CBEPaymentView(APIView):
             'message':      'CBE Birr payment initialization triggered (Stub)',
             'checkout_url': 'https://cbebirr.com/checkout/demo',
         })
+
+# ─────────────────────────────────────────
+# Cancel Booking
+# ─────────────────────────────────────────
+class CancelBookingView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        booking_id = request.data.get('booking_id')
+        user_id = request.data.get('user_id')
+
+        if not booking_id or not user_id:
+            return Response({'status': 'error', 'message': 'booking_id and user_id are required'}, status=400)
+
+        try:
+            from apps.bookings.models import Booking
+            with transaction.atomic():
+                booking = Booking.objects.select_for_update().get(booking_id=booking_id, user_id=user_id)
+                
+                payments = booking.payment_set.all()
+                if payments and payments[0].status == 'cancelled':
+                    return Response({'status': 'error', 'message': 'Booking is already cancelled'}, status=400)
+                
+                # Free the seat if it was booked
+                if booking.seat:
+                    booking.seat.is_booked = False
+                    booking.seat.save()
+
+                # Mark payment as cancelled
+                for payment in payments:
+                    payment.status = 'cancelled'
+                    payment.save()
+
+                return Response({'status': 'success', 'message': 'Booking cancelled successfully'})
+        except Booking.DoesNotExist:
+            return Response({'status': 'error', 'message': 'Booking not found'}, status=404)
+        except Exception as e:
+            return Response({'status': 'error', 'message': str(e)}, status=500)
+
