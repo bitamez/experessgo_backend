@@ -113,107 +113,103 @@ class ChapaPaymentView(APIView):
 # Chapa Payment Verification + Booking Save
 # ─────────────────────────────────────────
 class ChapaVerifyView(APIView):
-    """
-    Frontend calls this after Chapa redirects back to /profile?tx_ref=...
-    Verifies with Chapa, then creates the Booking + Payment records.
-    """
-    permission_classes = [AllowAny]
-
     def get(self, request):
         tx_ref = request.query_params.get('tx_ref', '').strip()
         if not tx_ref:
-            return Response({'status': 'error', 'message': 'tx_ref is required'},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({'status': 'error', 'message': 'tx_ref is required'}, status=400)
 
         CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY')
-        if not CHAPA_SECRET_KEY:
-            return Response({'status': 'error', 'message': 'Payment service not configured'},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # ── Verify with Chapa ───────────────────────────────────────
+        
+        # 1. Verify with Chapa
         verify_url = f'https://api.chapa.co/v1/transaction/verify/{tx_ref}'
-        headers    = {'Authorization': f'Bearer {CHAPA_SECRET_KEY}'}
+        headers = {'Authorization': f'Bearer {CHAPA_SECRET_KEY}'}
 
         try:
-            chapa_res  = requests.get(verify_url, headers=headers, timeout=15)
+            chapa_res = requests.get(verify_url, headers=headers, timeout=15)
             chapa_data = chapa_res.json()
         except Exception as e:
-            return Response({'status': 'error', 'message': f'Chapa verify request failed: {e}'},
-                            status=status.HTTP_502_BAD_GATEWAY)
+            return Response({'status': 'error', 'message': f'Connection failed: {e}'}, status=502)
 
-        tx_data   = chapa_data.get('data', {})
-        tx_status = tx_data.get('status', '')
-
-        if not (chapa_data.get('status') == 'success' and tx_status == 'success'):
+        # Check if Chapa actually confirmed the payment
+        if chapa_data.get('status') != 'success' or chapa_data.get('data', {}).get('status') != 'success':
             return Response({
-                'status':       'pending',
-                'message':      'Payment not yet confirmed by Chapa.',
-                'chapa_status': tx_status,
-            })
+                'status': 'pending',
+                'message': 'Payment not confirmed by bank yet.',
+                'chapa_status': chapa_data.get('data', {}).get('status', 'unknown')
+            }, status=200)
 
-        # ── Payment confirmed — create Booking + Payment ────────────
-        meta      = tx_data.get('meta', {}) or {}
-        user_id   = meta.get('user_id', '')
-        trip_id   = meta.get('trip_id', '')
-        seat_num  = meta.get('seat', '')
-        amount    = meta.get('amount', tx_data.get('amount', 0))
+        tx_data = chapa_data.get('data', {})
+        meta = tx_data.get('meta', {})
 
-        booking_created = False
-        if user_id and trip_id and trip_id.isdigit():
-            try:
-                from django.db import connection
-                from apps.users.models  import SupabaseUser
-                from apps.buses.models  import Schedule, Seat
-                from apps.bookings.models import Booking, Payment
+        # 2. Atomic Database Operations
+        try:
+            from django.db import transaction, DatabaseError
+            from django.db.models import F
+            from apps.users.models import SupabaseUser
+            from apps.buses.models import Schedule, Seat
+            from apps.bookings.models import Booking, Payment
 
-                # Get or create user row (satisfies FK constraint)
+            with transaction.atomic():
+                # Use select_for_update() to lock the schedule row and prevent race conditions
+                schedule_id = meta.get('trip_id')
+                user_id = meta.get('user_id')
+                seat_num = meta.get('seat')
+
+                if not (schedule_id and user_id):
+                    raise ValueError("Missing metadata in Chapa response")
+
+                schedule_obj = Schedule.objects.select_for_update().get(schedule_id=int(schedule_id))
+                
+                # Ensure user exists
                 user_obj, _ = SupabaseUser.objects.get_or_create(
                     id=user_id,
                     defaults={'full_name': tx_data.get('first_name', 'Passenger')}
                 )
 
-                schedule_obj = Schedule.objects.get(schedule_id=int(trip_id))
-
-                # Get or create seat
+                # Find or Create Seat
                 if seat_num:
                     seat_obj, _ = Seat.objects.get_or_create(
                         bus=schedule_obj.bus,
-                        seat_number=str(seat_num),
+                        seat_number=str(seat_num)
                     )
                 else:
                     seat_obj = Seat.objects.filter(bus=schedule_obj.bus).first()
 
-                if seat_obj:
-                    booking, created = Booking.objects.get_or_create(
-                        schedule=schedule_obj,
-                        seat=seat_obj,
-                        defaults={'user': user_obj},
-                    )
-                    Payment.objects.get_or_create(
+                if not seat_obj:
+                    raise ValueError("No seat available")
+
+                # Create Booking (get_or_create prevents duplicate records for same tx_ref)
+                booking, created = Booking.objects.get_or_create(
+                    schedule=schedule_obj,
+                    seat=seat_obj,
+                    user=user_obj,
+                    # You might want to store tx_ref in your Booking model for safety
+                )
+
+                if created:
+                    # Create Payment Record
+                    Payment.objects.create(
                         booking=booking,
-                        defaults={
-                            'amount':         amount,
-                            'payment_method': 'Chapa',
-                            'status':         'success',
-                            'paid_at':        datetime.now(tz=timezone.utc),
-                        },
+                        amount=tx_data.get('amount'),
+                        payment_method='Chapa',
+                        status='success',
+                        paid_at=datetime.now(tz=timezone.utc)
                     )
-                    # Update tickets_count on user
-                    if created:
-                        SupabaseUser.objects.filter(id=user_id).update(
-                            tickets_count=user_obj.tickets_count + 1
-                        )
-                    booking_created = True
+                    
+                    # Increment ticket count safely
+                    SupabaseUser.objects.filter(id=user_id).update(tickets_count=F('tickets_count') + 1)
 
-            except Exception as e:
-                print(f'[ChapaVerify] DB save error: {e}')
-                # Still return success — Chapa confirmed the payment
+            return Response({
+                'status': 'success',
+                'message': 'Booking confirmed!',
+                'booking_id': booking.booking_id
+            })
 
-        return Response({
-            'status':  'success',
-            'message': 'Payment verified and booking confirmed.' if booking_created
-                       else 'Payment verified (booking details unavailable).',
-        })
+        except Schedule.DoesNotExist:
+            return Response({'status': 'error', 'message': 'Trip not found'}, status=404)
+        except Exception as e:
+            print(f"Internal Error: {str(e)}")
+            return Response({'status': 'error', 'message': 'Database save failed'}, status=500)
 
 
 # ─────────────────────────────────────────
